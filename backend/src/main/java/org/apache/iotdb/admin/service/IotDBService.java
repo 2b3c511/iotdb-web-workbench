@@ -93,6 +93,9 @@ public interface IotDBService {
 
   void deleteTimeseries(Connection connection, String timeseriesName) throws BaseException;
 
+  public void batchDeleteTimeseries(Connection connection, List<String> measurementList)
+      throws BaseException;
+
   List<Integer> getDevicesCount(Connection connection, List<String> groupNames)
       throws BaseException;
 

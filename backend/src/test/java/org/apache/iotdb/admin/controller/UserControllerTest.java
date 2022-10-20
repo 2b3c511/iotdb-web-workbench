@@ -24,6 +24,7 @@ import com.auth0.jwt.algorithms.Algorithm;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
@@ -38,6 +39,7 @@ import java.util.Calendar;
 class UserControllerTest {
 
   private MockMvc mvc;
+  @Autowired private BCryptPasswordEncoder bCryptPasswordEncoder;
 
   @Autowired private WebApplicationContext wac;
 
@@ -52,6 +54,12 @@ class UserControllerTest {
             .param("password", "123456")
             .contextPath("/api");
     mvc.perform(request).andExpect(MockMvcResultMatchers.status().isOk());
+  }
+
+  @Test
+  void getComplexPWD() {
+    String password = "123456";
+    System.out.println(bCryptPasswordEncoder.encode(password));
   }
 
   @Test

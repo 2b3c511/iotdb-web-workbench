@@ -22,8 +22,12 @@ package org.apache.iotdb.admin.service;
 import org.apache.iotdb.admin.common.exception.BaseException;
 import org.apache.iotdb.admin.model.dto.DeviceInfoDTO;
 
+import java.util.List;
+
 public interface MeasurementService {
   void deleteMeasurementInfo(String host, String groupName) throws BaseException;
+
+  void deleteMeasurementInfo(String host, List<String> measurementList) throws BaseException;
 
   void deleteMeasurementInfoByDeviceName(String host, String deviceName) throws BaseException;
 

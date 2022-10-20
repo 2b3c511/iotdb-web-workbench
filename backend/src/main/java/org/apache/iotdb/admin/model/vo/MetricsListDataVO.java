@@ -28,4 +28,5 @@ public class MetricsListDataVO implements Serializable {
   private String latestScratchTime;
   private String latestResult;
   private Integer detailAvailable;
+  private String metricType;
 }

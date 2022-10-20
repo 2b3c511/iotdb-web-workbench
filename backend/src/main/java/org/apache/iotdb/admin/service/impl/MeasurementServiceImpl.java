@@ -59,6 +59,21 @@ public class MeasurementServiceImpl extends ServiceImpl<MeasurementMapper, Measu
   }
 
   @Override
+  public void deleteMeasurementInfo(String host, List<String> measurementList)
+      throws BaseException {
+    QueryWrapper queryWrapper = new QueryWrapper();
+    queryWrapper.eq("host", host);
+    queryWrapper.in("measurement_name", measurementList);
+    try {
+      measurementMapper.delete(queryWrapper);
+    } catch (Exception e) {
+      throw new BaseException(
+          ErrorCode.BATCH_DELETE_MEASUREMENT_INFO_FAIL,
+          ErrorCode.BATCH_DELETE_MEASUREMENT_INFO_FAIL_MSG);
+    }
+  }
+
+  @Override
   public void deleteMeasurementInfoByDeviceName(String host, String deviceName)
       throws BaseException {
     QueryWrapper queryWrapper = new QueryWrapper();

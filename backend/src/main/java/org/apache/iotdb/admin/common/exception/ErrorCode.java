@@ -420,4 +420,9 @@ public class ErrorCode {
 
   // Parameter verify
   public static final String WRONG_PARAM = "PARAM-0001";
+
+  public static final String BATCH_DELETE_MEASUREMENT_INFO_FAIL_MSG = "MEASU-0004";
+  public static final String BATCH_DELETE_MEASUREMENT_INFO_FAIL =
+      "Fail to batch delete measurement info ";
+  public static final String EMPTY_DB_PARAM_MSG = "The delete parameter is empty";
 }

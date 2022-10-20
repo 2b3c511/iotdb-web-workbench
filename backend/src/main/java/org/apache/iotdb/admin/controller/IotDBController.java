@@ -137,6 +137,10 @@ public class IotDBController {
     List<Integer> deviceCounts = iotDBService.getDevicesCount(connection, subGroupNames);
     List<String> descriptions = groupService.getGroupDescription(host, subGroupNames);
     for (int i = 0; i < subGroupNames.size(); i++) {
+      if (subGroupNames.get(i).equals("root._metric")) {
+        size--;
+        continue;
+      }
       GroupInfo groupInfo = new GroupInfo();
       groupInfo.setGroupName(subGroupNames.get(i));
       groupInfo.setDeviceCount(deviceCounts.get(i));
@@ -161,6 +165,9 @@ public class IotDBController {
     }
     String host = connection.getHost();
     for (String groupName : groupNames) {
+      if (groupName.equals("root._metric")) {
+        continue;
+      }
       StorageGroupVO storageGroupVO = new StorageGroupVO();
       storageGroupVO.setGroupName(groupName);
       storageGroupVOList.add(storageGroupVO);
@@ -592,6 +599,35 @@ public class IotDBController {
     String host = connection.getHost();
     measurementService.deleteMeasurementInfo(host, timeseriesName);
     return BaseVO.success("Delete successfully", null);
+  }
+
+  @DeleteMapping("/storageGroups/{groupName}/devices/{deviceName}/batchtimeseries")
+  @ApiOperation("Delete measurements")
+  public BaseVO batchDeleteTimeseries(
+      @PathVariable("serverId") Integer serverId,
+      @PathVariable("groupName") String groupName,
+      @PathVariable("deviceName") String deviceName,
+      @RequestBody MeasurementsDeleteDTO measurementsDeleteDTO,
+      HttpServletRequest request)
+      throws BaseException {
+    check(request, serverId);
+    checkParameter(measurementsDeleteDTO, groupName, deviceName);
+    List<String> measurementList = measurementsDeleteDTO.getMeasurementList();
+    Connection connection = connectionService.getById(serverId);
+    iotDBService.batchDeleteTimeseries(connection, measurementList);
+    String host = connection.getHost();
+    measurementService.deleteMeasurementInfo(host, measurementList);
+    return BaseVO.success("Batch Delete successfully", null);
+  }
+
+  private void checkParameter(
+      MeasurementsDeleteDTO measurementsDeleteDTO, String groupName, String deviceName)
+      throws BaseException {
+    checkParameter(groupName, deviceName);
+    if (measurementsDeleteDTO.isMeasurementEmpty()) {
+      throw new BaseException(
+          ErrorCode.BATCH_DELETE_MEASUREMENT_INFO_FAIL, ErrorCode.EMPTY_DB_PARAM_MSG);
+    }
   }
 
   @PostMapping("/storageGroups/{groupName}/devices/{deviceName}/data")

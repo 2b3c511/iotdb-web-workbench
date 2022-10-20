@@ -1470,6 +1470,27 @@ public class IotDBServiceImpl implements IotDBService {
   }
 
   @Override
+  public void batchDeleteTimeseries(Connection connection, List<String> measurementList)
+      throws BaseException {
+    SessionPool sessionPool = getSessionPool(connection);
+    try {
+      for (String timeseriesName : measurementList) {
+        sessionPool.deleteTimeseries(timeseriesName);
+      }
+    } catch (IoTDBConnectionException e) {
+      throw new BaseException(ErrorCode.DELETE_TS_FAIL, ErrorCode.DELETE_TS_FAIL_MSG);
+    } catch (StatementExecutionException e) {
+      if (e.getStatusCode() == 602) {
+        throw new BaseException(
+            ErrorCode.NO_PRI_DELETE_TIMESERIES, ErrorCode.NO_PRI_DELETE_TIMESERIES_MSG);
+      }
+      throw new BaseException(ErrorCode.DELETE_TS_FAIL, ErrorCode.DELETE_TS_FAIL_MSG);
+    } finally {
+      closeSessionPool(sessionPool);
+    }
+  }
+
+  @Override
   public List<Integer> getDevicesCount(Connection connection, List<String> groupNames)
       throws BaseException {
     SessionPool sessionPool = getSessionPool(connection);
@@ -1871,7 +1892,7 @@ public class IotDBServiceImpl implements IotDBService {
     SessionPool sessionPool = getSessionPool(connection);
     try {
       String sql = "show ttl on " + groupName;
-      String queryField = "ttl";
+      String queryField = "ttl(ms)";
       String ttl = executeQueryOneLine(sessionPool, sql, queryField);
       return ttl;
     } finally {
@@ -3517,95 +3538,46 @@ public class IotDBServiceImpl implements IotDBService {
     if (port == 6668) {
       port = 8086;
     }
-    String sql =
+    String maxSql =
         "select * from "
             + "root._metric.\"0.0.0.0:"
             + port
-            + "\".\"jvm.memory.max.bytes\".\"area=nonheap\".\"id=Compressed Class Space\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.max.bytes\".\"area=nonheap\".\"id=Code Cache\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.max.bytes\".\"area=nonheap\".\"id=Metaspace\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.max.bytes\".\"area=heap\".\"id=PS Old Gen\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.max.bytes\".\"area=heap\".\"id=PS Eden Space\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.max.bytes\".\"area=heap\".\"id=PS Survivor Space\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.used.bytes\".\"area=nonheap\".\"id=Compressed Class Space\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.used.bytes\".\"area=nonheap\".\"id=Code Cache\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.used.bytes\".\"area=nonheap\".\"id=Metaspace\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.used.bytes\".\"area=heap\".\"id=PS Old Gen\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.used.bytes\".\"area=heap\".\"id=PS Eden Space\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.memory.used.bytes\".\"area=heap\".\"id=PS Survivor Space\" "
+            + "\".\"jvm.memory.max.bytes\".** "
             + "order by time desc limit 16";
+    String usedSql =
+        "select * from "
+            + "root._metric.\"0.0.0.0:"
+            + port
+            + "\".\"jvm.memory.used.bytes\".** "
+            + "order by time desc limit 16";
+
     MetricsChartDataVO metricsChartDataVO = new MetricsChartDataVO();
-    try {
-      sessionDataSetWrapper = sessionPool.executeQueryStatement(sql);
-      int batchSize = sessionDataSetWrapper.getBatchSize();
-      if (batchSize > 0) {
-        int count = 0;
-        while (sessionDataSetWrapper.hasNext()) {
-          count++;
-          RowRecord rowRecord = sessionDataSetWrapper.next();
-          long timestamp = rowRecord.getTimestamp();
-          List<org.apache.iotdb.tsfile.read.common.Field> fields1 = rowRecord.getFields();
-          String pattern1 = "HH:mm";
-          SimpleDateFormat simpleDateFormat1 = new SimpleDateFormat(pattern1);
-          timeList.add(simpleDateFormat1.format(timestamp));
-          storage.add(
-              getNetFileSizeDescription(
-                  (getLongFromString(
-                      (Float.parseFloat(fields1.get(6).toString())
-                              + Float.parseFloat(fields1.get(7).toString())
-                              + Float.parseFloat(fields1.get(8).toString())
-                              + Float.parseFloat(fields1.get(9).toString())
-                              + Float.parseFloat(fields1.get(10).toString())
-                              + Float.parseFloat(fields1.get(11).toString()))
-                          + ""))));
-          max.add(
-              getNetFileSizeDescription(
-                  (getLongFromString(
-                      (Float.parseFloat(fields1.get(0).toString())
-                              + Float.parseFloat(fields1.get(1).toString())
-                              + Float.parseFloat(fields1.get(2).toString())
-                              + Float.parseFloat(fields1.get(3).toString())
-                              + Float.parseFloat(fields1.get(4).toString())
-                              + Float.parseFloat(fields1.get(5).toString()))
-                          + ""))));
-        }
-        Collections.reverse(storage);
-        Collections.reverse(max);
-        dataList.put(metricnameList.get(0), storage);
-        dataList.put(metricnameList.get(1), max);
-        Collections.reverse(timeList);
-        metricsChartDataVO.setTimeList(timeList);
-        metricsChartDataVO.setMetricnameList(metricnameList);
-        metricsChartDataVO.setDataList(dataList);
-        metricsChartDataVO.setUnitList(unitList);
-      }
-    } catch (IoTDBConnectionException e) {
-      e.printStackTrace();
-    } catch (StatementExecutionException e) {
-      e.printStackTrace();
+    List<String>[] maxResult = getSumValue(sessionPool, sessionDataSetWrapper, maxSql, false);
+    maxResult[1].stream()
+        .forEach(
+            item -> {
+              max.add(getNetFileSizeDescription((getLongFromString(item))));
+            });
+    List<String>[] usedResult = getSumValue(sessionPool, sessionDataSetWrapper, usedSql, false);
+    usedResult[1].stream()
+        .forEach(
+            item -> {
+              storage.add(getNetFileSizeDescription((getLongFromString(item))));
+            });
+    timeList = maxResult[0];
+    if (timeList == null || timeList.isEmpty()) {
+      timeList = usedResult[0];
     }
+    Collections.reverse(storage);
+    Collections.reverse(max);
+    dataList.put(metricnameList.get(0), storage);
+    dataList.put(metricnameList.get(1), max);
+    Collections.reverse(timeList);
+    metricsChartDataVO.setTimeList(timeList);
+    metricsChartDataVO.setMetricnameList(metricnameList);
+    metricsChartDataVO.setDataList(dataList);
+    metricsChartDataVO.setUnitList(unitList);
+
     return metricsChartDataVO;
   }
 
@@ -3872,11 +3844,11 @@ public class IotDBServiceImpl implements IotDBService {
     List<String> timeList = new ArrayList<>();
     List<String> metricnameList = new ArrayList<>();
     metricnameList.add("Metadata GC Threshold");
-    metricnameList.add("Allocation Failure");
+    //    metricnameList.add("Allocation Failure");
     List<String> unitList = new ArrayList<>();
     unitList.add("ms");
     List<String> metadata_GC_Threshold_Reason = new ArrayList<>();
-    List<String> Allocation_Failure_Reason = new ArrayList<>();
+    //    List<String> Allocation_Failure_Reason = new ArrayList<>();
     HashMap<String, List<String>> dataList = new HashMap<>();
     if (port == 6668) {
       port = 8086;
@@ -3885,10 +3857,11 @@ public class IotDBServiceImpl implements IotDBService {
         "select * from "
             + "root._metric.\"0.0.0.0:"
             + port
-            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".\"cause=Metadata GC Threshold\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".\"cause=Allocation Failure\" "
+            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".\"cause=Metadata GC Threshold\" "
+            //            + "root._metric.\"0.0.0.0:"
+            //            + port
+            //            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".\"cause=Allocation
+            // Failure\" "
             + "order by time desc limit 1";
     MetricsChartDataVO metricsChartDataVO = new MetricsChartDataVO();
     try {
@@ -3905,10 +3878,11 @@ public class IotDBServiceImpl implements IotDBService {
           SimpleDateFormat simpleDateFormat1 = new SimpleDateFormat(pattern1);
           timeList.add(simpleDateFormat1.format(timestamp));
           metadata_GC_Threshold_Reason.add(Float.parseFloat(fields1.get(0).toString()) + "");
-          Allocation_Failure_Reason.add(Float.parseFloat(fields1.get(1).toString()) + "");
+          //          Allocation_Failure_Reason.add(Float.parseFloat(fields1.get(1).toString()) +
+          // "");
         }
         dataList.put(metricnameList.get(0), metadata_GC_Threshold_Reason);
-        dataList.put(metricnameList.get(1), Allocation_Failure_Reason);
+        //        dataList.put(metricnameList.get(1), Allocation_Failure_Reason);
         metricsChartDataVO.setTimeList(timeList);
         metricsChartDataVO.setMetricnameList(metricnameList);
         metricsChartDataVO.setDataList(dataList);
@@ -4073,6 +4047,55 @@ public class IotDBServiceImpl implements IotDBService {
     return queryMetricsVOS;
   }
 
+  private List<String>[] getSumValue(
+      SessionPool sessionPool,
+      SessionDataSetWrapper sessionDataSetWrapper,
+      String sql,
+      Boolean isInt) {
+    List<String> timeList = new ArrayList<>();
+    List<String> resultList = new ArrayList<>();
+    try {
+      sessionDataSetWrapper = sessionPool.executeQueryStatement(sql);
+      int batchSize = sessionDataSetWrapper.getBatchSize();
+      if (batchSize > 0) {
+        int count = 0;
+        while (sessionDataSetWrapper.hasNext()) {
+          count++;
+          RowRecord rowRecord = sessionDataSetWrapper.next();
+          long timestamp = rowRecord.getTimestamp();
+          List<org.apache.iotdb.tsfile.read.common.Field> fields1 = rowRecord.getFields();
+          String pattern1 = "HH:mm";
+          SimpleDateFormat simpleDateFormat1 = new SimpleDateFormat(pattern1);
+          timeList.add(simpleDateFormat1.format(timestamp));
+          float sum = 0;
+          for (int i = 0; i < fields1.size(); i++) {
+            String s = fields1.get(i).toString();
+            if (StringUtils.isBlank(s) || s.equals("null")) {
+              s = "0.0";
+            }
+            if (isInt) {
+              s = s.substring(0, s.indexOf('.'));
+              sum += Integer.parseInt(s);
+            } else {
+              sum += Float.parseFloat(s);
+            }
+          }
+          if (isInt) {
+            resultList.add(String.valueOf((int) sum));
+          } else {
+            resultList.add(String.valueOf(sum));
+          }
+        }
+      }
+    } catch (IoTDBConnectionException e) {
+      e.printStackTrace();
+    } catch (StatementExecutionException e) {
+      e.printStackTrace();
+    }
+    List<String>[] result = new List[] {timeList, resultList};
+    return result;
+  }
+
   private MetricsChartDataVO getJVMGCDiagramData(
       SessionPool sessionPool,
       SessionDataSetWrapper sessionDataSetWrapper,
@@ -4095,74 +4118,69 @@ public class IotDBServiceImpl implements IotDBService {
     if (port == 6668) {
       port = 8086;
     }
-    String sql =
+
+    String minorCountSql =
         "select * from "
             + "root._metric.\"0.0.0.0:"
             + port
-            + "\".\"jvm.gc.pause_count\".\"action=end of minor GC\".\"cause=Metadata GC Threshold\", "
+            + "\".\"jvm.gc.pause_count\".\"action=end of minor GC\".** order by time desc limit 16";
+    String majorCountSql =
+        "select * from "
             + "root._metric.\"0.0.0.0:"
             + port
-            + "\".\"jvm.gc.pause_count\".\"action=end of minor GC\".\"cause=Allocation Failure\", "
+            + "\".\"jvm.gc.pause_count\".\"action=end of major GC\".** order by time desc limit 16";
+    String minorTimeSql =
+        "select * from "
             + "root._metric.\"0.0.0.0:"
             + port
-            + "\".\"jvm.gc.pause_count\".\"action=end of major GC\".\"cause=Metadata GC Threshold\", "
+            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".** order by time desc limit 16";
+    String majorTimeSql =
+        "select * from "
             + "root._metric.\"0.0.0.0:"
             + port
-            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".\"cause=Metadata GC Threshold\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.gc.pause_total\".\"action=end of minor GC\".\"cause=Allocation Failure\", "
-            + "root._metric.\"0.0.0.0:"
-            + port
-            + "\".\"jvm.gc.pause_total\".\"action=end of major GC\".\"cause=Metadata GC Threshold\" "
-            + "order by time desc limit 16";
+            + "\".\"jvm.gc.pause_total\".\"action=end of major GC\".** order by time desc limit 16";
     MetricsChartDataVO metricsChartDataVO = new MetricsChartDataVO();
-    try {
-      sessionDataSetWrapper = sessionPool.executeQueryStatement(sql);
-      int batchSize = sessionDataSetWrapper.getBatchSize();
-      if (batchSize > 0) {
-        int count = 0;
-        while (sessionDataSetWrapper.hasNext()) {
-          count++;
-          RowRecord rowRecord = sessionDataSetWrapper.next();
-          long timestamp = rowRecord.getTimestamp();
-          List<org.apache.iotdb.tsfile.read.common.Field> fields1 = rowRecord.getFields();
-          String pattern1 = "HH:mm";
-          SimpleDateFormat simpleDateFormat1 = new SimpleDateFormat(pattern1);
-          timeList.add(simpleDateFormat1.format(timestamp));
-          String s1 = fields1.get(2).toString();
-          s1 = s1.substring(0, s1.indexOf('.'));
-          String s2 = fields1.get(0).toString();
-          s2 = s2.substring(0, s2.indexOf('.'));
-          String s3 = fields1.get(1).toString();
-          s3 = s3.substring(0, s3.indexOf('.'));
-          majorGCCount.add(s1 + "次");
-          minorGCCount.add((Integer.parseInt(s2) + Integer.parseInt(s3)) + "次");
-          majorGCTime.add(Float.parseFloat(fields1.get(5).toString()) + "ms");
-          minorGCTime.add(
-              (Float.parseFloat(fields1.get(3).toString())
-                      + Float.parseFloat(fields1.get(4).toString()))
-                  + "ms");
-        }
-        Collections.reverse(majorGCCount);
-        Collections.reverse(minorGCCount);
-        Collections.reverse(majorGCTime);
-        Collections.reverse(minorGCTime);
-        dataList.put(metricnameList.get(0), majorGCCount);
-        dataList.put(metricnameList.get(1), minorGCCount);
-        dataList.put(metricnameList.get(2), majorGCTime);
-        dataList.put(metricnameList.get(3), minorGCTime);
-        Collections.reverse(timeList);
-        metricsChartDataVO.setTimeList(timeList);
-        metricsChartDataVO.setMetricnameList(metricnameList);
-        metricsChartDataVO.setDataList(dataList);
-        metricsChartDataVO.setUnitList(unitList);
-      }
-    } catch (IoTDBConnectionException e) {
-      e.printStackTrace();
-    } catch (StatementExecutionException e) {
-      e.printStackTrace();
+
+    List<String>[] result = getSumValue(sessionPool, sessionDataSetWrapper, majorCountSql, true);
+    result[1].stream()
+        .forEach(
+            item -> {
+              majorGCCount.add(item + "次");
+            });
+    List<String>[] result2 = getSumValue(sessionPool, sessionDataSetWrapper, minorCountSql, true);
+    result2[1].stream()
+        .forEach(
+            item -> {
+              minorGCCount.add(item + "次");
+            });
+    getSumValue(sessionPool, sessionDataSetWrapper, majorTimeSql, false)[1].stream()
+        .forEach(
+            item -> {
+              majorGCTime.add(item + "ms");
+            });
+    getSumValue(sessionPool, sessionDataSetWrapper, minorTimeSql, false)[1].stream()
+        .forEach(
+            item -> {
+              minorGCTime.add(item + "ms");
+            });
+    timeList = result[0];
+    if (timeList == null || timeList.isEmpty()) {
+      timeList = result2[0];
     }
+    Collections.reverse(majorGCCount);
+    Collections.reverse(minorGCCount);
+    Collections.reverse(majorGCTime);
+    Collections.reverse(minorGCTime);
+    dataList.put(metricnameList.get(0), majorGCCount);
+    dataList.put(metricnameList.get(1), minorGCCount);
+    dataList.put(metricnameList.get(2), majorGCTime);
+    dataList.put(metricnameList.get(3), minorGCTime);
+    Collections.reverse(timeList);
+    metricsChartDataVO.setTimeList(timeList);
+    metricsChartDataVO.setMetricnameList(metricnameList);
+    metricsChartDataVO.setDataList(dataList);
+    metricsChartDataVO.setUnitList(unitList);
+
     return metricsChartDataVO;
   }
 
